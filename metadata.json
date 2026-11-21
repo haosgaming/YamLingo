@@ -1,0 +1,6 @@
+{
+  "name": "YAMLingo",
+  "description": "Interaktivní výuková hra pro psaní YAML konfigurací v Home Assistant a ESPHome s živým 3D simulátorem, YAML Doctorem a dopaminovým enginem.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
