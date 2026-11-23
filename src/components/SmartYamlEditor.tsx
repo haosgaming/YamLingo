@@ -1,8 +1,11 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Eye, GripVertical, Sparkles, Wand2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, FileCode2, GripVertical, Sparkles, Wand2 } from 'lucide-react';
 import type { CodeBlock } from '../engine/curriculum';
 import { autoFixYaml, type YamlDiagnostic } from '../engine/yamlValidator';
+import { tokenizeYamlLine, YAML_TOKEN_COLOR } from '../engine/yamlHighlighter';
+import { toggleYamlComments, unindentYamlSelection } from '../engine/yamlEditing';
 import { soundEngine } from '../utils/soundEngine';
+import { PSPadIntegrationModal } from './PSPadIntegrationModal';
 
 interface SmartYamlEditorProps {
   value: string;
@@ -11,6 +14,7 @@ interface SmartYamlEditorProps {
   blocks?: CodeBlock[];
   shakeKey?: number;
   readOnly?: boolean;
+  onSubmit?: () => void;
 }
 
 const INDENT_GUIDE_COLORS = [
@@ -20,32 +24,29 @@ const INDENT_GUIDE_COLORS = [
   'rgba(167, 151, 209, 0.28)',
 ];
 
-function renderHighlightedLine(
-  line: string,
-  showWhitespace: boolean
+function renderLeadingWhitespace(
+  leading: string,
+  showWhitespace: boolean,
+  lineIdx: number
 ): React.ReactNode {
-  if (!line) return ' ';
-
-  const leadingMatch = line.match(/^([ \t]*)(.*)$/);
-  const leading = leadingMatch ? leadingMatch[1] : '';
-  const rest = leadingMatch ? leadingMatch[2] : line;
-
-  // Render leading spaces/tabs with spatial markers
-  const leadingNodes = Array.from(leading).map((ch, i) => {
+  return Array.from(leading).map((ch, i) => {
     if (ch === '\t') {
       return (
         <span
-          key={`w-${i}`}
-          className="inline-block rounded-xs px-0.5 font-bold"
-          style={{ backgroundColor: 'rgba(239, 68, 68, 0.28)', color: '#fca5a5' }}
+          key={`w-${lineIdx}-${i}`}
+          className="inline-block w-[2ch] text-center"
+          style={{
+            backgroundColor: 'rgba(217, 107, 107, 0.24)',
+            color: 'var(--danger)',
+          }}
         >
-          →{' '}
+          →
         </span>
       );
     }
     return (
       <span
-        key={`w-${i}`}
+        key={`w-${lineIdx}-${i}`}
         style={{
           color: showWhitespace ? 'var(--text-muted)' : 'transparent',
           opacity: showWhitespace ? 0.65 : 0,
@@ -55,73 +56,35 @@ function renderHighlightedLine(
       </span>
     );
   });
+}
 
-  // Comment line
-  if (rest.startsWith('#')) {
-    return (
-      <>
-        {leadingNodes}
-        <span style={{ color: 'var(--syntax-comment)' }}>{rest}</span>
-      </>
-    );
-  }
+function renderHighlightedLine(
+  line: string,
+  showWhitespace: boolean,
+  lineIdx: number
+): React.ReactNode {
+  if (!line) return ' ';
 
-  // Highlight Jinja2 blocks inside rest
-  const renderValueTokens = (val: string) => {
-    const trimmed = val.trim();
-    if (!trimmed) return val;
-
-    if (val.includes('{{') || val.includes('{%')) {
-      const parts = val.split(/(\{\{.*?\}\}|\{%.*?%\})/g);
-      return parts.map((p, idx) =>
-        p.startsWith('{{') || p.startsWith('{%') ? (
-          <span key={idx} style={{ color: 'var(--syntax-jinja)', fontWeight: 600 }}>
-            {p}
-          </span>
-        ) : (
-          <span key={idx} style={{ color: 'var(--syntax-string)' }}>
-            {p}
-          </span>
-        )
+  const tokens = tokenizeYamlLine(line);
+  return tokens.map((token, tIdx) => {
+    if (token.type === 'whitespace') {
+      return (
+        <React.Fragment key={`tok-${lineIdx}-${tIdx}`}>
+          {renderLeadingWhitespace(token.value, showWhitespace, lineIdx)}
+        </React.Fragment>
       );
     }
 
-    if (/^(true|false|yes|no|on|off)$/i.test(trimmed)) {
-      return <span style={{ color: 'var(--syntax-bool)', fontWeight: 600 }}>{val}</span>;
-    }
-    if (/^-?\d+(\.\d+)?$|^0x[0-9a-fA-F]+$/.test(trimmed)) {
-      return <span style={{ color: 'var(--syntax-number)' }}>{val}</span>;
-    }
-    return <span style={{ color: 'var(--syntax-string)' }}>{val}</span>;
-  };
-
-  // List dash + key: value or plain key: value
-  const listPrefixMatch = rest.match(/^(-\s+)(.*)$/);
-  const dashNode = listPrefixMatch ? (
-    <span style={{ color: 'var(--accent)', fontWeight: 700 }}>{listPrefixMatch[1]}</span>
-  ) : null;
-  const content = listPrefixMatch ? listPrefixMatch[2] : rest;
-
-  const kvMatch = content.match(/^([a-zA-Z0-9_.-]+)(:)(.*)$/);
-  if (kvMatch) {
     return (
-      <>
-        {leadingNodes}
-        {dashNode}
-        <span style={{ color: 'var(--syntax-key)', fontWeight: 500 }}>{kvMatch[1]}</span>
-        <span style={{ color: 'var(--text-muted)' }}>{kvMatch[2]}</span>
-        {renderValueTokens(kvMatch[3])}
-      </>
+      <span
+        key={`tok-${lineIdx}-${tIdx}`}
+        data-token-type={token.type}
+        style={{ color: YAML_TOKEN_COLOR[token.type] }}
+      >
+        {token.value}
+      </span>
     );
-  }
-
-  return (
-    <>
-      {leadingNodes}
-      {dashNode}
-      {renderValueTokens(content)}
-    </>
-  );
+  });
 }
 
 export function SmartYamlEditor({
@@ -131,10 +94,14 @@ export function SmartYamlEditor({
   blocks = [],
   shakeKey = 0,
   readOnly = false,
+  onSubmit,
 }: SmartYamlEditorProps) {
   const [showWhitespace, setShowWhitespace] = useState(true);
+  const [activeLine, setActiveLine] = useState(1);
+  const [pspadOpen, setPspadOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const backdropRef = useRef<HTMLDivElement | null>(null);
+  const gutterRef = useRef<HTMLDivElement | null>(null);
 
   const lines = useMemo(() => value.split(/\r?\n/), [value]);
   const errorLines = useMemo(() => {
@@ -147,11 +114,23 @@ export function SmartYamlEditor({
     return map;
   }, [diagnostics]);
 
-  const handleScroll = () => {
-    if (textareaRef.current && backdropRef.current) {
-      backdropRef.current.scrollTop = textareaRef.current.scrollTop;
-      backdropRef.current.scrollLeft = textareaRef.current.scrollLeft;
+  const syncScroll = () => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (backdropRef.current) {
+      backdropRef.current.scrollTop = ta.scrollTop;
+      backdropRef.current.scrollLeft = ta.scrollLeft;
     }
+    if (gutterRef.current) {
+      gutterRef.current.scrollTop = ta.scrollTop;
+    }
+  };
+
+  const syncActiveLine = (ta: HTMLTextAreaElement | null) => {
+    if (!ta) return;
+    const pos = ta.selectionStart ?? 0;
+    const lineNum = ta.value.slice(0, pos).split(/\r?\n/).length;
+    setActiveLine(lineNum);
   };
 
   const insertSnippet = (snippet: string) => {
@@ -174,14 +153,54 @@ export function SmartYamlEditor({
       ta.focus();
       const cursor = before.length + insertion.length;
       ta.setSelectionRange(cursor, cursor);
+      syncActiveLine(ta);
     });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && onSubmit) {
+      e.preventDefault();
+      onSubmit();
+      return;
+    }
+
     if (readOnly) return;
     const ta = e.currentTarget;
     const start = ta.selectionStart;
     const end = ta.selectionEnd;
+
+    if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+      e.preventDefault();
+      const res = toggleYamlComments(value, start, end);
+      onChange(res.value);
+      soundEngine.playPop();
+      requestAnimationFrame(() => {
+        ta.setSelectionRange(res.selectionStart, res.selectionEnd);
+        syncActiveLine(ta);
+      });
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      const fixed = autoFixYaml(value);
+      if (fixed !== value) {
+        onChange(fixed);
+        soundEngine.playPop();
+      }
+      return;
+    }
+
+    if (e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      const res = unindentYamlSelection(value, start, end);
+      onChange(res.value);
+      requestAnimationFrame(() => {
+        ta.setSelectionRange(res.selectionStart, res.selectionEnd);
+        syncActiveLine(ta);
+      });
+      return;
+    }
 
     if (e.key === 'Tab') {
       e.preventDefault();
@@ -189,6 +208,7 @@ export function SmartYamlEditor({
       onChange(next);
       requestAnimationFrame(() => {
         ta.setSelectionRange(start + 2, start + 2);
+        syncActiveLine(ta);
       });
       return;
     }
@@ -207,6 +227,7 @@ export function SmartYamlEditor({
       requestAnimationFrame(() => {
         const pos = start + 1 + nextIndent.length;
         ta.setSelectionRange(pos, pos);
+        syncActiveLine(ta);
       });
     }
   };
@@ -286,6 +307,27 @@ export function SmartYamlEditor({
             Mezery ({showWhitespace ? 'zap' : 'vyp'})
           </button>
 
+          {!readOnly && (
+            <button
+              type="button"
+              data-testid="editor-pspad-btn"
+              onClick={() => {
+                soundEngine.playPop();
+                setPspadOpen(true);
+              }}
+              className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0"
+              style={{
+                backgroundColor: 'transparent',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+              title="Export, klipy YAML.DEF a příkazy pro PSPad"
+            >
+              <FileCode2 className="h-3.5 w-3.5" style={{ color: 'var(--accent)' }} />
+              PSPad
+            </button>
+          )}
+
           {hasFixableIssues && !readOnly && (
             <button
               type="button"
@@ -348,79 +390,118 @@ export function SmartYamlEditor({
 
       {/* Main Editor Surface */}
       <div className="relative flex-1 min-h-[240px] overflow-hidden font-mono text-[13.5px] leading-[22px]">
+        {/* Fixed Line Number Gutter (Synced vertically) */}
+        <div
+          ref={gutterRef}
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 bottom-0 w-[48px] overflow-hidden border-r py-3 select-none"
+          style={{
+            backgroundColor: 'var(--bg-editor)',
+            borderColor: 'var(--border-subtle)',
+          }}
+        >
+          {lines.map((_, idx) => {
+            const lineNum = idx + 1;
+            const diag = errorLines.get(lineNum);
+            const isActive = lineNum === activeLine;
+            return (
+              <div
+                key={idx}
+                className="h-[22px] pr-2.5 text-right tabular-nums text-xs leading-[22px]"
+                style={{
+                  color: diag
+                    ? diag.severity === 'error'
+                      ? 'var(--danger)'
+                      : 'var(--warning)'
+                    : isActive
+                    ? 'var(--accent)'
+                    : 'var(--text-muted)',
+                  fontWeight: diag || isActive ? 600 : 400,
+                }}
+              >
+                {lineNum}
+              </div>
+            );
+          })}
+        </div>
+
         {/* Synchronized Highlight & Indent Guide Layer */}
         <div
           ref={backdropRef}
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 overflow-hidden py-3"
+          data-testid="yaml-highlight-backdrop"
+          className="pointer-events-none absolute left-[48px] right-0 top-0 bottom-0 overflow-hidden py-3"
         >
-          {lines.map((line, idx) => {
-            const lineNum = idx + 1;
-            const diag = errorLines.get(lineNum);
-            const spaceMatch = line.match(/^( +)/);
-            const indentDepth = spaceMatch ? Math.floor(spaceMatch[1].length / 2) : 0;
+          <div className="min-w-full w-max">
+            {lines.map((line, idx) => {
+              const lineNum = idx + 1;
+              const diag = errorLines.get(lineNum);
+              const isActive = lineNum === activeLine;
+              const spaceMatch = line.match(/^( +)/);
+              const indentDepth = spaceMatch ? Math.floor(spaceMatch[1].length / 2) : 0;
 
-            return (
-              <div
-                key={idx}
-                className="relative flex min-h-[22px] whitespace-pre px-3"
-                style={{
-                  backgroundColor:
-                    diag?.severity === 'error'
-                      ? 'rgba(239, 68, 68, 0.12)'
-                      : diag?.severity === 'warning'
-                      ? 'rgba(245, 158, 11, 0.08)'
-                      : 'transparent',
-                }}
-              >
-                {/* Line number */}
-                <span
-                  className="mr-4 inline-block w-7 shrink-0 select-none text-right tabular-nums text-xs leading-[22px]"
+              return (
+                <div
+                  key={idx}
+                  className="relative h-[22px] whitespace-pre px-3"
                   style={{
-                    color: diag ? 'var(--danger)' : 'var(--text-muted)',
-                    fontWeight: diag ? 700 : 400,
+                    backgroundColor:
+                      diag?.severity === 'error'
+                        ? 'rgba(217, 107, 107, 0.12)'
+                        : diag?.severity === 'warning'
+                        ? 'rgba(212, 154, 69, 0.09)'
+                        : isActive
+                        ? 'var(--accent-soft)'
+                        : 'transparent',
                   }}
                 >
-                  {lineNum}
-                </span>
-
-                {/* Vertical colored indentation guide lines */}
-                <div className="relative flex-1">
-                  {Array.from({ length: Math.min(indentDepth, 4) }).map((_, gIdx) => (
-                    <span
-                      key={gIdx}
-                      className="pointer-events-none absolute top-0 bottom-0"
-                      style={{
-                        left: `${gIdx * 2}ch`,
-                        width: '1.5px',
-                        backgroundColor: INDENT_GUIDE_COLORS[gIdx % INDENT_GUIDE_COLORS.length],
-                      }}
-                    />
-                  ))}
-                  {renderHighlightedLine(line, showWhitespace)}
+                  <div className="relative">
+                    {Array.from({ length: Math.min(indentDepth, 4) }).map((_, gIdx) => (
+                      <span
+                        key={gIdx}
+                        className="pointer-events-none absolute top-0 bottom-0"
+                        style={{
+                          left: `${gIdx * 2}ch`,
+                          width: '1.5px',
+                          backgroundColor: INDENT_GUIDE_COLORS[gIdx % INDENT_GUIDE_COLORS.length],
+                        }}
+                      />
+                    ))}
+                    {renderHighlightedLine(line, showWhitespace, idx)}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
 
         {/* Actual Editable Textarea */}
         <textarea
           ref={textareaRef}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value);
+            syncActiveLine(e.currentTarget);
+            if (!readOnly) {
+              soundEngine.playTypeTick();
+            }
+          }}
+          onClick={(e) => syncActiveLine(e.currentTarget)}
+          onKeyUp={(e) => syncActiveLine(e.currentTarget)}
+          onSelect={(e) => syncActiveLine(e.currentTarget)}
           onKeyDown={handleKeyDown}
-          onScroll={handleScroll}
+          onScroll={syncScroll}
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
           readOnly={readOnly}
+          wrap="off"
           spellCheck={false}
           autoCapitalize="off"
           autoComplete="off"
           autoCorrect="off"
           aria-label="YAML editor"
-          className="yaml-input absolute inset-0 h-full w-full resize-none overflow-auto bg-transparent py-3 pr-3 pl-[52px] font-mono text-[13.5px] leading-[22px] text-transparent caret-[var(--accent)] outline-none selection:bg-sky-500/30"
-          style={{ tabSize: 2 }}
+          className="yaml-input absolute left-[48px] right-0 top-0 bottom-0 h-full w-[calc(100%-48px)] resize-none overflow-auto whitespace-pre bg-transparent px-3 py-3 font-mono text-[13.5px] leading-[22px] text-transparent outline-none"
+          style={{ tabSize: 2, caretColor: 'var(--accent)' }}
         />
       </div>
 
@@ -463,6 +544,14 @@ export function SmartYamlEditor({
           ))}
         </div>
       )}
+
+      <PSPadIntegrationModal
+        open={pspadOpen}
+        onClose={() => setPspadOpen(false)}
+        yaml={value}
+        diagnostics={diagnostics}
+        onImportYaml={readOnly ? undefined : onChange}
+      />
     </div>
   );
 }

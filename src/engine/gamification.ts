@@ -11,6 +11,13 @@ export interface ShopItem {
   swatchColor: string;
 }
 
+export interface SoundPreferences {
+  uiClicks: boolean;
+  successFanfares: boolean;
+  errorAlerts: boolean;
+  typingFeedback: boolean;
+}
+
 export interface PlayerProgress {
   volts: number;
   xp: number;
@@ -18,13 +25,32 @@ export interface PlayerProgress {
   streakFreezes: number;
   lastActiveDate: string; // YYYY-MM-DD
   completedLessons: string[];
+  activityByDate: Record<string, number>;
   unlockedThemes: EditorThemeId[];
   activeTheme: EditorThemeId;
   unlockedSkins: BoardSkinId[];
   activeSkin: BoardSkinId;
   hintsAvailable: number;
+  hintsUsedCount: number;
+  flawlessLessonsCount: number;
   soundEnabled: boolean;
+  soundPreferences: SoundPreferences;
   zenMode: boolean;
+}
+
+export interface DailyActivityPoint {
+  date: string;
+  label: string;
+  shortLabel: string;
+  completions: number;
+  isToday: boolean;
+}
+
+export interface ActivitySummary30Days {
+  totalCompletions: number;
+  activeDays: number;
+  bestDayCount: number;
+  averagePerActiveDay: number;
 }
 
 export const SHOP_CATALOG: ShopItem[] = [
@@ -120,6 +146,13 @@ export const SHOP_CATALOG: ShopItem[] = [
   },
 ];
 
+export const DEFAULT_SOUND_PREFERENCES: SoundPreferences = {
+  uiClicks: true,
+  successFanfares: true,
+  errorAlerts: true,
+  typingFeedback: true,
+};
+
 export function createDefaultProgress(todayStr = getLocalDateKey()): PlayerProgress {
   return {
     volts: 60,
@@ -128,13 +161,34 @@ export function createDefaultProgress(todayStr = getLocalDateKey()): PlayerProgr
     streakFreezes: 1,
     lastActiveDate: todayStr,
     completedLessons: [],
+    activityByDate: {},
     unlockedThemes: ['minimal-dark', 'light'],
     activeTheme: 'minimal-dark',
     unlockedSkins: ['pcb-emerald'],
     activeSkin: 'pcb-emerald',
     hintsAvailable: 3,
+    hintsUsedCount: 0,
+    flawlessLessonsCount: 0,
     soundEnabled: true,
+    soundPreferences: { ...DEFAULT_SOUND_PREFERENCES },
     zenMode: false,
+  };
+}
+
+export function toggleSoundPreference(
+  progress: PlayerProgress,
+  channel: keyof SoundPreferences
+): PlayerProgress {
+  const currentPrefs: SoundPreferences = {
+    ...DEFAULT_SOUND_PREFERENCES,
+    ...(progress.soundPreferences ?? {}),
+  };
+  return {
+    ...progress,
+    soundPreferences: {
+      ...currentPrefs,
+      [channel]: !currentPrefs[channel],
+    },
   };
 }
 
@@ -168,18 +222,80 @@ export function applyLessonCompletion(
   progress: PlayerProgress,
   lessonId: string,
   reward: { volts: number; xp: number },
-  todayStr = getLocalDateKey()
+  todayStr = getLocalDateKey(),
+  options?: { flawless?: boolean }
 ): PlayerProgress {
   const updatedStreak = updateStreakOnActivity(progress, todayStr);
   const completedLessons = progress.completedLessons.includes(lessonId)
     ? progress.completedLessons
     : [...progress.completedLessons, lessonId];
+  const prevMap = progress.activityByDate ?? {};
+  const activityByDate: Record<string, number> = {
+    ...prevMap,
+    [todayStr]: (prevMap[todayStr] ?? 0) + 1,
+  };
+  const flawlessLessonsCount =
+    (progress.flawlessLessonsCount ?? 0) + (options?.flawless ? 1 : 0);
 
   return {
     ...updatedStreak,
     volts: updatedStreak.volts + reward.volts,
     xp: updatedStreak.xp + reward.xp,
     completedLessons,
+    activityByDate,
+    flawlessLessonsCount,
+  };
+}
+
+export function buildLast30DaysActivity(
+  activityByDate: Record<string, number> = {},
+  todayStr = getLocalDateKey()
+): DailyActivityPoint[] {
+  const anchor = new Date(`${todayStr}T12:00:00`);
+  const points: DailyActivityPoint[] = [];
+
+  for (let offset = 29; offset >= 0; offset--) {
+    const d = new Date(anchor);
+    d.setDate(anchor.getDate() - offset);
+    const dateKey = getLocalDateKey(d);
+    const rawCount = activityByDate[dateKey] ?? 0;
+    const completions = Number.isFinite(rawCount) ? Math.max(0, Math.floor(rawCount)) : 0;
+
+    points.push({
+      date: dateKey,
+      label: `${d.getDate()}. ${d.getMonth() + 1}.`,
+      shortLabel: `${d.getDate()}.`,
+      completions,
+      isToday: offset === 0,
+    });
+  }
+
+  return points;
+}
+
+export function summarizeActivity30Days(
+  points: DailyActivityPoint[]
+): ActivitySummary30Days {
+  let totalCompletions = 0;
+  let activeDays = 0;
+  let bestDayCount = 0;
+
+  for (const pt of points) {
+    totalCompletions += pt.completions;
+    if (pt.completions > 0) {
+      activeDays += 1;
+    }
+    if (pt.completions > bestDayCount) {
+      bestDayCount = pt.completions;
+    }
+  }
+
+  return {
+    totalCompletions,
+    activeDays,
+    bestDayCount,
+    averagePerActiveDay:
+      activeDays > 0 ? Math.round((totalCompletions / activeDays) * 10) / 10 : 0,
   };
 }
 

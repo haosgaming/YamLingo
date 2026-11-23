@@ -4,6 +4,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock,
+  Download,
   Lightbulb,
   RotateCcw,
   ShieldAlert,
@@ -17,6 +18,7 @@ import { soundEngine } from '../utils/soundEngine';
 import { InlineCodeText } from './InlineCodeText';
 import { LivePreviewPanel } from './LivePreviewPanel';
 import { SmartYamlEditor } from './SmartYamlEditor';
+import { YamlExportModal } from './YamlExportModal';
 
 interface LessonWorkspaceProps {
   lesson: LessonNode;
@@ -57,6 +59,7 @@ export function LessonWorkspace({
     reward?: { volts: number; xp: number };
   } | null>(null);
   const [lessonWon, setLessonWon] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   // Reset state whenever lesson changes
   useEffect(() => {
@@ -69,6 +72,7 @@ export function LessonWorkspace({
     setBossFailed(false);
     setFeedbackBanner(null);
     setLessonWon(false);
+    setExportOpen(false);
   }, [lesson]);
 
   // Boss Fight countdown timer
@@ -156,30 +160,34 @@ export function LessonWorkspace({
 
   const handleRevealHint = () => {
     if (showHint) return;
-    if (hintsAvailable > 0 && onUseHint()) {
-      soundEngine.playPop();
-      setShowHint(true);
-    } else {
-      // Never block learning completely — allow showing hint cleanly even at 0
-      soundEngine.playPop();
-      setShowHint(true);
-    }
+    onUseHint();
+    soundEngine.playPop();
+    setShowHint(true);
   };
 
   return (
-    <div className="mx-auto flex h-full max-w-[1440px] flex-col gap-3 p-3 sm:p-5">
+    <div
+      className={`mx-auto flex h-full flex-col gap-3 p-3 sm:p-5 transition-[max-width,padding] duration-300 ease-out ${
+        zenMode ? 'max-w-[1540px]' : 'max-w-[1440px]'
+      }`}
+    >
       {/* Lesson Header Strip */}
       <div
-        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-all duration-300"
         style={{
           backgroundColor: 'var(--bg-surface)',
           borderColor: lesson.isBoss ? 'var(--warning)' : 'var(--border-subtle)',
         }}
       >
         <div className="flex items-center gap-3">
-          {!zenMode && (
+          <div
+            className="zen-fade-x"
+            data-zen-hidden={zenMode ? 'true' : 'false'}
+            aria-hidden={zenMode}
+          >
             <button
               type="button"
+              tabIndex={zenMode ? -1 : undefined}
               onClick={onBackToMap}
               className="flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap"
               style={{
@@ -190,7 +198,7 @@ export function LessonWorkspace({
               <ArrowLeft className="h-3.5 w-3.5" />
               Mapa
             </button>
-          )}
+          </div>
           <div>
             <div className="flex items-center gap-2 text-xs font-mono" style={{ color: lesson.isBoss ? 'var(--warning)' : 'var(--accent)' }}>
               {lesson.isBoss ? (
@@ -210,8 +218,27 @@ export function LessonWorkspace({
           </div>
         </div>
 
-        {/* Progress & Boss Metrics */}
-        <div className="flex items-center gap-4 text-xs font-mono tabular-nums">
+        {/* Progress, Export & Boss Metrics */}
+        <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs font-mono tabular-nums">
+          <button
+            type="button"
+            data-testid="lesson-export-btn"
+            onClick={() => {
+              soundEngine.playPop();
+              setExportOpen(true);
+            }}
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 font-sans text-xs font-semibold transition-colors whitespace-nowrap"
+            style={{
+              backgroundColor: 'var(--bg-elevated)',
+              borderColor: 'var(--border-strong)',
+              color: 'var(--text-primary)',
+            }}
+            title="Exportovat aktuální YAML pro Home Assistant nebo ESPHome"
+          >
+            <Download className="h-3.5 w-3.5" style={{ color: 'var(--accent)' }} />
+            Exportovat YAML
+          </button>
+
           {lesson.isBoss && (
             <div className="flex items-center gap-3">
               <span
@@ -282,6 +309,7 @@ export function LessonWorkspace({
               diagnostics={analysis.diagnostics}
               blocks={lesson.blocks}
               shakeKey={shakeKey}
+              onSubmit={handleCheck}
             />
           </div>
 
@@ -448,6 +476,16 @@ export function LessonWorkspace({
           </div>
         </div>
       )}
+      <YamlExportModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        code={code}
+        parsed={analysis.parsed}
+        diagnostics={analysis.diagnostics}
+        lessonId={lesson.id}
+        lessonTitle={lesson.title}
+        lessonMode={lesson.mode}
+      />
     </div>
   );
 }

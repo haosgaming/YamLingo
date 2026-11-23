@@ -23,7 +23,7 @@
     --syntax-string: #8fbf9f;
     --syntax-number: #d9b072;
     --syntax-bool: #c88ea7;
-    --syntax-comment: #636d7e;
+    --syntax-comment: #768396;
     --syntax-jinja: #a797d1;
   }
 
@@ -47,7 +47,7 @@
     --syntax-string: #89c4a8;
     --syntax-number: #dbb876;
     --syntax-bool: #cfa0b4;
-    --syntax-comment: #5b7794;
+    --syntax-comment: #6f8dab;
     --syntax-jinja: #a4b2df;
   }
 
@@ -71,7 +71,7 @@
     --syntax-string: #c9a259;
     --syntax-number: #9fd1ad;
     --syntax-bool: #c9866b;
-    --syntax-comment: #4e6e58;
+    --syntax-comment: #60886d;
     --syntax-jinja: #7ab8b0;
   }
 
@@ -95,7 +95,7 @@
     --syntax-string: #2c6e49;
     --syntax-number: #9c6216;
     --syntax-bool: #943b62;
-    --syntax-comment: #8b95a5;
+    --syntax-comment: #647082;
     --syntax-jinja: #6b4694;
   }
 
@@ -126,6 +126,15 @@
     font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
     font-variant-numeric: tabular-nums;
   }
+
+  textarea.yaml-input {
+    caret-color: var(--accent);
+  }
+
+  textarea.yaml-input::selection {
+    background-color: color-mix(in srgb, var(--accent) 28%, transparent);
+    color: transparent;
+  }
 }
 
 @keyframes editor-shake {
@@ -140,9 +149,73 @@
   animation: editor-shake 260ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }
 
+.zen-fade-x {
+  overflow: hidden;
+  max-width: 640px;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    max-width 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease-out 60ms,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.zen-fade-x[data-zen-hidden="true"] {
+  max-width: 0px !important;
+  margin-left: 0px !important;
+  margin-right: 0px !important;
+  opacity: 0;
+  transform: translateY(-3px) scale(0.97);
+  pointer-events: none;
+  transition:
+    opacity 180ms ease-out,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
+    margin 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms;
+}
+
+.zen-collapse-y {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 220ms ease-out 60ms,
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    margin-top 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.zen-collapse-y[data-zen-hidden="true"] {
+  grid-template-rows: 0fr;
+  margin-top: 0px !important;
+  opacity: 0;
+  transform: translateY(-6px);
+  pointer-events: none;
+  transition:
+    opacity 180ms ease-out,
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    grid-template-rows 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms,
+    margin-top 300ms cubic-bezier(0.22, 1, 0.36, 1) 40ms;
+}
+
+.zen-collapse-y > .zen-collapse-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-editor-shake {
     animation: none;
+  }
+
+  .zen-fade-x,
+  .zen-fade-x[data-zen-hidden="true"],
+  .zen-collapse-y,
+  .zen-collapse-y[data-zen-hidden="true"] {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
   }
 }
 

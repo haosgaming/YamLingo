@@ -1,6 +1,20 @@
 import type { SimulationState, YamlDiagnostic } from './yamlValidator';
 
 export type LessonMode = 'yaml' | 'esphome' | 'ha';
+export type LessonDifficulty = 'easy' | 'medium' | 'hard';
+export type DifficultyFilter = 'all' | LessonDifficulty;
+
+export interface DifficultyMeta {
+  id: LessonDifficulty;
+  label: string;
+  colorVar: string;
+}
+
+export const DIFFICULTY_META: Record<LessonDifficulty, DifficultyMeta> = {
+  easy: { id: 'easy', label: 'Snadná', colorVar: 'var(--success)' },
+  medium: { id: 'medium', label: 'Střední', colorVar: 'var(--warning)' },
+  hard: { id: 'hard', label: 'Těžká', colorVar: 'var(--danger)' },
+};
 
 export interface CodeBlock {
   label: string;
@@ -26,6 +40,7 @@ export interface LessonNode {
   order: number;
   title: string;
   mode: LessonMode;
+  difficulty: LessonDifficulty;
   durationLabel: string;
   isBoss: boolean;
   bossTimeSec?: number;
@@ -110,6 +125,7 @@ export const LESSONS: LessonNode[] = [
     order: 1,
     title: 'Skalární typy',
     mode: 'yaml',
+    difficulty: 'easy',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Nastav textový název `name: Obyvak`, číselnou hodnotu `teplota: 22.5` a logickou hodnotu `aktivni: true`.',
@@ -137,6 +153,7 @@ export const LESSONS: LessonNode[] = [
     order: 2,
     title: 'Seznamy pomocí pomlčky',
     mode: 'yaml',
+    difficulty: 'easy',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Vytvoř pod klíčem `mistnosti:` seznam nejméně 3 místností pomocí pomlčky a mezery (`- `).',
@@ -165,6 +182,7 @@ export const LESSONS: LessonNode[] = [
     order: 3,
     title: 'Slovníky a vnoření',
     mode: 'yaml',
+    difficulty: 'easy',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Vnoř pod klíč `homeassistant:` klíč `name: Domov` a `unit_system: metric` s přesným 2-mezerovým odsazením.',
@@ -193,6 +211,7 @@ export const LESSONS: LessonNode[] = [
     order: 4,
     title: 'Boss Fight: Zrádné odsazování',
     mode: 'yaml',
+    difficulty: 'hard',
     durationLabel: '3 min',
     isBoss: true,
     bossTimeSec: 90,
@@ -225,6 +244,7 @@ export const LESSONS: LessonNode[] = [
     order: 1,
     title: 'Definice desky ESP32',
     mode: 'esphome',
+    difficulty: 'easy',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Definuj základní projekt v ESPHome: nastav `esphome: name: lampicka` a pod `esp32:` vyber `board: esp32dev`.',
@@ -253,6 +273,7 @@ export const LESSONS: LessonNode[] = [
     order: 2,
     title: 'Wi-Fi & OTA aktualizace',
     mode: 'esphome',
+    difficulty: 'easy',
     durationLabel: '3 min',
     isBoss: false,
     brief: 'Připoj desku k síti přidáním `wifi:` (`ssid` a `password`) a povol bezdrátové nahrávání `ota:`.',
@@ -281,6 +302,7 @@ export const LESSONS: LessonNode[] = [
     order: 3,
     title: 'GPIO LEDka & Výstup',
     mode: 'esphome',
+    difficulty: 'medium',
     durationLabel: '3 min',
     isBoss: false,
     brief: 'Rozsviť modrou LEDku na 3D desce! Propoj `output:` (`platform: gpio`, `pin: GPIO2`, `id: led_pin`) se světlem `light:` (`platform: binary`, `name: "Stolni LED"`, `output: led_pin`).',
@@ -310,6 +332,7 @@ export const LESSONS: LessonNode[] = [
     order: 4,
     title: 'Boss Fight: Zkrat na Flash pinu',
     mode: 'esphome',
+    difficulty: 'hard',
     durationLabel: '3 min',
     isBoss: true,
     bossTimeSec: 90,
@@ -342,6 +365,7 @@ export const LESSONS: LessonNode[] = [
     order: 1,
     title: 'Spouštěč (Trigger)',
     mode: 'ha',
+    difficulty: 'easy',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Napiš automatizaci, která se spustí, když `binary_sensor.pohyb_chodba` přejde do stavu `"on"`.',
@@ -371,6 +395,7 @@ export const LESSONS: LessonNode[] = [
     order: 2,
     title: 'Podmínka (Condition)',
     mode: 'ha',
+    difficulty: 'medium',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Světlo v chodbě nemá svítit ve dne. Přidej `condition:` se sluneční podmínkou `condition: sun` a `after: sunset`.',
@@ -399,6 +424,7 @@ export const LESSONS: LessonNode[] = [
     order: 3,
     title: 'Akce: target & entity_id',
     mode: 'ha',
+    difficulty: 'medium',
     durationLabel: '3 min',
     isBoss: false,
     brief: 'Přesuň `entity_id: light.obyvak` správně pod blok `target:`, nikoli přímo pod akci. Vyhni se nečitelným `device_id`.',
@@ -428,6 +454,7 @@ export const LESSONS: LessonNode[] = [
     order: 4,
     title: 'Boss Fight: Přetopený obývák',
     mode: 'ha',
+    difficulty: 'hard',
     durationLabel: '3 min',
     isBoss: true,
     bossTimeSec: 90,
@@ -463,6 +490,7 @@ export const LESSONS: LessonNode[] = [
     order: 1,
     title: 'I2C sběrnice & BME280',
     mode: 'esphome',
+    difficulty: 'medium',
     durationLabel: '3 min',
     isBoss: false,
     brief: 'Zapoj senzor teploty a vlhkosti `bme280`. Nastav I2C piny (`sda: GPIO21`, `scl: GPIO22`) a přidej `address: 0x76`.',
@@ -491,6 +519,7 @@ export const LESSONS: LessonNode[] = [
     order: 2,
     title: 'Filtry dat (Median)',
     mode: 'esphome',
+    difficulty: 'medium',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Surová data ze senzoru občas skáčou. Přidej pod `temperature:` seznam `filters:` s filtrem `- median:`.',
@@ -525,6 +554,7 @@ export const LESSONS: LessonNode[] = [
     order: 3,
     title: 'MQTT Broker integrace',
     mode: 'esphome',
+    difficulty: 'medium',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Připoj zařízení na `mqtt:` broker s adresou `broker: 192.168.1.10` a nastav `topic_prefix: dum/obyvak`.',
@@ -552,6 +582,7 @@ export const LESSONS: LessonNode[] = [
     order: 4,
     title: 'Boss Fight: Výpadek telemetrie',
     mode: 'esphome',
+    difficulty: 'hard',
     durationLabel: '3 min',
     isBoss: true,
     bossTimeSec: 100,
@@ -584,6 +615,7 @@ export const LESSONS: LessonNode[] = [
     order: 1,
     title: 'Renderování stavů {{ states() }}',
     mode: 'ha',
+    difficulty: 'medium',
     durationLabel: '2 min',
     isBoss: false,
     brief: 'Vytvoř šablonový senzor, jehož `state:` vypíše aktuální teplotu pomocí `{{ states(\'sensor.obyvak_teplota\') }}`.',
@@ -609,6 +641,7 @@ export const LESSONS: LessonNode[] = [
     order: 2,
     title: 'Podmínky {% if %} v šabloně',
     mode: 'ha',
+    difficulty: 'hard',
     durationLabel: '3 min',
     isBoss: false,
     brief: 'Napiš víceřádkovou Jinja2 šablonu (`>`), která zobrazí `"Větrej!"` pokud je `states(\'sensor.obyvak_teplota\') | float(0) > 24`, jinak `"Pohoda"`.',
@@ -637,6 +670,7 @@ export const LESSONS: LessonNode[] = [
     order: 3,
     title: 'Chytrá notifikace s | float',
     mode: 'ha',
+    difficulty: 'hard',
     durationLabel: '3 min',
     isBoss: false,
     brief: 'Vytvoř notifikační akci `notify.mobile_app`, která v `message:` spojí podmínku `is_state(\'binary_sensor.okno\', \'on\')` s teplotou.',
@@ -661,6 +695,7 @@ export const LESSONS: LessonNode[] = [
     order: 4,
     title: 'Finální Boss: Totální výpadek domu',
     mode: 'ha',
+    difficulty: 'hard',
     durationLabel: '4 min',
     isBoss: true,
     bossTimeSec: 120,
@@ -687,3 +722,21 @@ export const LESSONS: LessonNode[] = [
     },
   },
 ];
+
+export function filterLessonsByDifficulty(lessons: LessonNode[], filter: DifficultyFilter): LessonNode[] {
+  if (filter === 'all') return lessons;
+  return lessons.filter((lesson) => lesson.difficulty === filter);
+}
+
+export function countLessonsByDifficulty(lessons: LessonNode[]): Record<DifficultyFilter, number> {
+  const counts: Record<DifficultyFilter, number> = {
+    all: lessons.length,
+    easy: 0,
+    medium: 0,
+    hard: 0,
+  };
+  for (const lesson of lessons) {
+    counts[lesson.difficulty] += 1;
+  }
+  return counts;
+}

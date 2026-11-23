@@ -1,34 +1,42 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bell,
   Eye,
   EyeOff,
   Flame,
+  HelpCircle,
   Map as MapIcon,
   Pause,
   Shield,
   ShoppingBag,
   Stethoscope,
+  Trophy,
   Volume2,
   VolumeX,
   X,
   Zap,
 } from 'lucide-react';
 import { CurriculumMap } from './components/CurriculumMap';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
 import { LessonWorkspace } from './components/LessonWorkspace';
 import { ParticleBurst } from './components/ParticleBurst';
 import { ShopView } from './components/ShopView';
 import { TitleScreen } from './components/TitleScreen';
 import { YamlDoctorView } from './components/YamlDoctorView';
+import { evaluateAchievements, type AchievementStatus } from './engine/achievements';
 import { LESSONS, type LessonNode } from './engine/curriculum';
 import {
   applyLessonCompletion,
   calculateLessonReward,
   createDefaultProgress,
+  DEFAULT_SOUND_PREFERENCES,
+  getLocalDateKey,
   getSmartNudgeMessage,
   purchaseShopItem,
+  toggleSoundPreference,
   type EditorThemeId,
   type PlayerProgress,
+  type SoundPreferences,
 } from './engine/gamification';
 import { soundEngine } from './utils/soundEngine';
 
@@ -42,7 +50,15 @@ function loadInitialProgress(): PlayerProgress {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PlayerProgress>;
-      return { ...createDefaultProgress(), ...parsed };
+      const defaults = createDefaultProgress();
+      return {
+        ...defaults,
+        ...parsed,
+        soundPreferences: {
+          ...DEFAULT_SOUND_PREFERENCES,
+          ...(parsed.soundPreferences ?? {}),
+        },
+      };
     }
   } catch {
     // Ignore storage parse failures
@@ -63,6 +79,9 @@ export default function App() {
   const [burstKey, setBurstKey] = useState(0);
   const [shopFeedback, setShopFeedback] = useState<string | null>(null);
   const [nudgeVisible, setNudgeVisible] = useState(true);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [unlockedToast, setUnlockedToast] = useState<AchievementStatus | null>(null);
+  const prevUnlockedIdsRef = useRef<Set<string> | null>(null);
 
   // Sync body dataset.state for Game Shell state machine
   useEffect(() => {
@@ -83,6 +102,7 @@ export default function App() {
   // Sync sound engine and localStorage
   useEffect(() => {
     soundEngine.setEnabled(progress.soundEnabled);
+    soundEngine.setPreferences(progress.soundPreferences);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
     } catch {
@@ -90,12 +110,53 @@ export default function App() {
     }
   }, [progress]);
 
-  // Global Escape / P pause handler when playing
+  // Detect newly unlocked achievements and show a non-intrusive toast
+  useEffect(() => {
+    const currentStatuses = evaluateAchievements(progress);
+    const unlockedNow = new Set(
+      currentStatuses.filter((s) => s.unlocked).map((s) => s.id)
+    );
+    if (prevUnlockedIdsRef.current === null) {
+      prevUnlockedIdsRef.current = unlockedNow;
+      return;
+    }
+    const newlyUnlocked = currentStatuses.find(
+      (s) => s.unlocked && !prevUnlockedIdsRef.current?.has(s.id)
+    );
+    prevUnlockedIdsRef.current = unlockedNow;
+    if (newlyUnlocked) {
+      setUnlockedToast(newlyUnlocked);
+    }
+  }, [progress]);
+
+  useEffect(() => {
+    if (!unlockedToast) return;
+    const timer = window.setTimeout(() => setUnlockedToast(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [unlockedToast]);
+
+  // Global keyboard shortcuts (navigation, Zen mode, sound, pause, cheat sheet)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const isTyping =
-        target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT');
+        target &&
+        (target.tagName === 'TEXTAREA' ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+
+      if (e.key === '?' && !isTyping && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (phase !== 'title') {
+          e.preventDefault();
+          setShortcutsOpen((prev) => !prev);
+        }
+        return;
+      }
+
+      if (shortcutsOpen) {
+        return;
+      }
 
       if (e.key === 'Escape') {
         if (phase === 'playing') {
@@ -103,14 +164,33 @@ export default function App() {
         } else if (phase === 'paused') {
           setPhase('playing');
         }
-      } else if ((e.key === 'p' || e.key === 'P') && !isTyping) {
-        if (phase === 'playing') setPhase('paused');
-        else if (phase === 'paused') setPhase('playing');
+        return;
+      }
+
+      if (isTyping || e.ctrlKey || e.metaKey || e.altKey || phase !== 'playing') {
+        return;
+      }
+
+      const lower = e.key.toLowerCase();
+      if (lower === 'p') {
+        setPhase('paused');
+      } else if (lower === 'z') {
+        setProgress((p) => ({ ...p, zenMode: !p.zenMode }));
+      } else if (lower === 'm') {
+        setProgress((p) => ({ ...p, soundEnabled: !p.soundEnabled }));
+      } else if (e.key === '1') {
+        setActiveTab('map');
+      } else if (e.key === '2') {
+        setActiveTab('lesson');
+      } else if (e.key === '3') {
+        setActiveTab('doctor');
+      } else if (e.key === '4') {
+        setActiveTab('shop');
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [phase]);
+  }, [phase, shortcutsOpen]);
 
   const handleStartFromTitle = useCallback(() => {
     soundEngine.playPop();
@@ -138,16 +218,20 @@ export default function App() {
       mistakesCount: stats.mistakesCount,
       remainingSeconds: stats.remainingSeconds,
     });
-    setProgress((prev) => applyLessonCompletion(prev, activeLesson.id, reward));
+    setProgress((prev) =>
+      applyLessonCompletion(prev, activeLesson.id, reward, getLocalDateKey(), {
+        flawless: !alreadyCompleted && stats.mistakesCount === 0,
+      })
+    );
     setBurstKey((k) => k + 1);
     return reward;
   };
 
   const handleUseHint = () => {
-    if (progress.hintsAvailable <= 0) return false;
     setProgress((prev) => ({
       ...prev,
       hintsAvailable: Math.max(0, prev.hintsAvailable - 1),
+      hintsUsedCount: (prev.hintsUsedCount ?? 0) + 1,
     }));
     return true;
   };
@@ -198,7 +282,8 @@ export default function App() {
 
   return (
     <div
-      className="flex min-h-screen flex-col"
+      data-zen={progress.zenMode ? 'true' : 'false'}
+      className="flex min-h-screen flex-col transition-colors duration-300"
       style={{
         backgroundColor: 'var(--bg-canvas)',
         color: 'var(--text-primary)',
@@ -208,7 +293,7 @@ export default function App() {
 
       {/* Top Game Shell HUD Bar */}
       <header
-        className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-2.5 sm:px-6"
+        className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-4 border-b px-4 py-2.5 sm:px-6 transition-all duration-300"
         style={{
           backgroundColor: 'var(--bg-surface)',
           borderColor: 'var(--border-subtle)',
@@ -224,11 +309,16 @@ export default function App() {
           YAMLingo
         </button>
 
-        {/* Zone 2: Navigation Tabs (hidden in Zen Mode) */}
-        {!progress.zenMode && (
-          <nav className="flex flex-wrap items-center gap-1 sm:gap-2" aria-label="Hlavní navigace">
+        {/* Zone 2: Navigation Tabs (smoothly faded & collapsed in Zen Mode) */}
+        <div
+          className="zen-fade-x shrink-0"
+          data-zen-hidden={progress.zenMode ? 'true' : 'false'}
+          aria-hidden={progress.zenMode}
+        >
+          <nav className="flex flex-nowrap items-center gap-1 sm:gap-2 whitespace-nowrap" aria-label="Hlavní navigace">
             <button
               type="button"
+              tabIndex={progress.zenMode ? -1 : undefined}
               onClick={() => setActiveTab('map')}
               className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] sm:px-3 sm:text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               style={{
@@ -242,6 +332,7 @@ export default function App() {
 
             <button
               type="button"
+              tabIndex={progress.zenMode ? -1 : undefined}
               onClick={() => setActiveTab('lesson')}
               className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] sm:px-3 sm:text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               style={{
@@ -255,6 +346,7 @@ export default function App() {
 
             <button
               type="button"
+              tabIndex={progress.zenMode ? -1 : undefined}
               onClick={() => setActiveTab('doctor')}
               className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] sm:px-3 sm:text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               style={{
@@ -268,6 +360,7 @@ export default function App() {
 
             <button
               type="button"
+              tabIndex={progress.zenMode ? -1 : undefined}
               onClick={() => setActiveTab('shop')}
               className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] sm:px-3 sm:text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               style={{
@@ -279,26 +372,28 @@ export default function App() {
               Obchod
             </button>
           </nav>
-        )}
+        </div>
 
         {/* Zone 3: Economy, Theme, Sound & Zen Mode */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {!progress.zenMode && (
-            <div className="hidden md:flex items-center gap-3 text-xs font-mono tabular-nums mr-1">
-              <span className="flex items-center gap-1 font-bold" style={{ color: 'var(--warning)' }} title="Volty">
-                <Zap className="h-3.5 w-3.5" />
-                {progress.volts}
-              </span>
-              <span className="flex items-center gap-1" style={{ color: 'var(--danger)' }} title="Denní řada">
-                <Flame className="h-3.5 w-3.5" />
-                {progress.streakDays}d
-              </span>
-              <span className="flex items-center gap-1" style={{ color: 'var(--accent)' }} title="Streak Freeze štíty">
-                <Shield className="h-3.5 w-3.5" />
-                {progress.streakFreezes}
-              </span>
-            </div>
-          )}
+          <div
+            className="zen-fade-x hidden md:flex items-center gap-3 text-xs font-mono tabular-nums mr-1 whitespace-nowrap"
+            data-zen-hidden={progress.zenMode ? 'true' : 'false'}
+            aria-hidden={progress.zenMode}
+          >
+            <span className="flex items-center gap-1 font-bold" style={{ color: 'var(--warning)' }} title="Volty">
+              <Zap className="h-3.5 w-3.5" />
+              {progress.volts}
+            </span>
+            <span className="flex items-center gap-1" style={{ color: 'var(--danger)' }} title="Denní řada">
+              <Flame className="h-3.5 w-3.5" />
+              {progress.streakDays}d
+            </span>
+            <span className="flex items-center gap-1" style={{ color: 'var(--accent)' }} title="Streak Freeze štíty">
+              <Shield className="h-3.5 w-3.5" />
+              {progress.streakFreezes}
+            </span>
+          </div>
 
           <select
             aria-label="Téma editoru"
@@ -329,10 +424,10 @@ export default function App() {
             aria-label={progress.zenMode ? 'Ukončit režim soustředění' : 'Zapnout režim soustředění'}
             aria-pressed={progress.zenMode}
             title="Režim soustředění (Zen Mode)"
-            className="flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium whitespace-nowrap"
+            className="flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors duration-200"
             style={{
               backgroundColor: progress.zenMode ? 'var(--accent)' : 'var(--bg-elevated)',
-              borderColor: 'var(--border-strong)',
+              borderColor: progress.zenMode ? 'var(--accent)' : 'var(--border-strong)',
               color: progress.zenMode ? 'var(--accent-contrast)' : 'var(--text-primary)',
             }}
           >
@@ -359,6 +454,23 @@ export default function App() {
 
           <button
             type="button"
+            onClick={() => setShortcutsOpen(true)}
+            aria-label="Klávesové zkratky (?)"
+            aria-expanded={shortcutsOpen}
+            title="Klávesové zkratky (?)"
+            className="flex items-center gap-1 rounded-lg border px-2 py-1.5 text-xs font-mono font-bold transition-colors"
+            style={{
+              backgroundColor: shortcutsOpen ? 'var(--accent-soft)' : 'var(--bg-elevated)',
+              borderColor: shortcutsOpen ? 'var(--accent)' : 'var(--border-strong)',
+              color: shortcutsOpen ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
+          >
+            <HelpCircle className="h-4 w-4" />
+            <span aria-hidden="true">?</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setPhase('paused')}
             aria-label="Pozastavit hru"
             className="rounded-lg border p-1.5"
@@ -373,28 +485,37 @@ export default function App() {
         </div>
       </header>
 
-      {/* Smart Nudge Bar (Hidden in Zen Mode) */}
-      {!progress.zenMode && nudgeVisible && activeTab === 'map' && (
+      {/* Smart Nudge Bar (Smoothly collapsed & faded in Zen Mode) */}
+      {nudgeVisible && activeTab === 'map' && (
         <div
-          className="mx-auto mt-3 flex w-[calc(100%-2rem)] max-w-5xl items-center justify-between gap-3 rounded-xl border px-4 py-2 text-xs"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderColor: 'var(--border-subtle)',
-            color: 'var(--text-secondary)',
-          }}
+          className="zen-collapse-y mx-auto mt-3 w-[calc(100%-2rem)] max-w-5xl"
+          data-zen-hidden={progress.zenMode ? 'true' : 'false'}
+          aria-hidden={progress.zenMode}
         >
-          <div className="flex items-center gap-2">
-            <Bell className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
-            <span>{nudgeText}</span>
+          <div className="zen-collapse-inner">
+            <div
+              className="flex items-center justify-between gap-3 rounded-xl border px-4 py-2 text-xs"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                borderColor: 'var(--border-subtle)',
+                color: 'var(--text-secondary)',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <Bell className="h-3.5 w-3.5 shrink-0" style={{ color: 'var(--accent)' }} />
+                <span>{nudgeText}</span>
+              </div>
+              <button
+                type="button"
+                tabIndex={progress.zenMode ? -1 : undefined}
+                onClick={() => setNudgeVisible(false)}
+                aria-label="Zavřít oznámení"
+                className="p-1 hover:opacity-80"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setNudgeVisible(false)}
-            aria-label="Zavřít oznámení"
-            className="p-1 hover:opacity-80"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
         </div>
       )}
 
@@ -402,7 +523,7 @@ export default function App() {
       <main className="flex-1">
         {activeTab === 'map' && (
           <CurriculumMap
-            completedLessons={progress.completedLessons}
+            progress={progress}
             onSelectLesson={handleSelectLesson}
           />
         )}
@@ -429,6 +550,26 @@ export default function App() {
           <ShopView
             progress={progress}
             onBuyOrEquip={handleBuyOrEquip}
+            onToggleMasterSound={() =>
+              setProgress((p) => ({ ...p, soundEnabled: !p.soundEnabled }))
+            }
+            onToggleSoundChannel={(channel: keyof SoundPreferences) => {
+              setProgress((p) => {
+                const updated = toggleSoundPreference(p, channel);
+                soundEngine.setPreferences(updated.soundPreferences);
+                return updated;
+              });
+            }}
+            onResetSoundPreferences={() => {
+              setProgress((p) => ({
+                ...p,
+                soundEnabled: true,
+                soundPreferences: { ...DEFAULT_SOUND_PREFERENCES },
+              }));
+              soundEngine.setEnabled(true);
+              soundEngine.setPreferences(DEFAULT_SOUND_PREFERENCES);
+              soundEngine.playPop();
+            }}
             feedbackMsg={shopFeedback}
           />
         )}
@@ -499,6 +640,52 @@ export default function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      <KeyboardShortcutsModal
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
+
+      {unlockedToast && (
+        <div
+          role="status"
+          data-testid="achievement-toast"
+          className="fixed right-4 bottom-4 z-50 flex max-w-xs items-start gap-3 rounded-xl border p-3.5 shadow-xl"
+          style={{
+            backgroundColor: 'var(--bg-surface)',
+            borderColor: unlockedToast.accentVar,
+          }}
+        >
+          <div
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border"
+            style={{
+              backgroundColor: `color-mix(in srgb, ${unlockedToast.accentVar} 14%, transparent)`,
+              borderColor: `color-mix(in srgb, ${unlockedToast.accentVar} 40%, transparent)`,
+            }}
+          >
+            <Trophy className="h-4 w-4" style={{ color: unlockedToast.accentVar }} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-mono font-semibold" style={{ color: unlockedToast.accentVar }}>
+              Odznak odemčen!
+            </div>
+            <div className="font-display text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+              {unlockedToast.title}
+            </div>
+            <div className="mt-0.5 text-xs" style={{ color: 'var(--text-secondary)' }}>
+              {unlockedToast.description}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUnlockedToast(null)}
+            aria-label="Zavřít oznámení o odznaku"
+            className="p-0.5 hover:opacity-80"
+            style={{ color: 'var(--text-muted)' }}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </div>

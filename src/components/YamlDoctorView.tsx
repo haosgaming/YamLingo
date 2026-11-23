@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Check,
   ExternalLink,
+  FileCode2,
   FolderTree,
   GitCompare,
   Loader2,
@@ -19,6 +20,7 @@ import {
   type YamlTreeNode,
 } from '../engine/yamlValidator';
 import { soundEngine } from '../utils/soundEngine';
+import { PSPadIntegrationModal } from './PSPadIntegrationModal';
 import { SmartYamlEditor } from './SmartYamlEditor';
 
 interface AiFixResult {
@@ -108,6 +110,7 @@ function TreeNodeItem({ node }: { node: YamlTreeNode }) {
 
 export function YamlDoctorView() {
   const [code, setCode] = useState<string>(PRESET_BROKEN_HA);
+  const [pspadOpen, setPspadOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiFix, setAiFix] = useState<AiFixResult | null>(null);
@@ -231,7 +234,7 @@ export function YamlDoctorView() {
             YAML Doctor — Import &amp; Diagnostika
           </h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>
-            Vlož (Ctrl+V) nebo nahraj vlastní .yaml soubor z Home Assistanta. Zkontroluj strom větví, nebo použij AI opravu s diffem.
+            Vlož (Ctrl+V), nahraj vlastní .yaml z Home Assistanta nebo propoj editor s programem PSPad.
           </p>
         </div>
 
@@ -282,6 +285,24 @@ export function YamlDoctorView() {
             Nahrát .yaml
             <input type="file" accept=".yaml,.yml,.txt" onChange={handleFileUpload} className="sr-only" />
           </label>
+
+          <button
+            type="button"
+            data-testid="doctor-pspad-btn"
+            onClick={() => {
+              soundEngine.playPop();
+              setPspadOpen(true);
+            }}
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold whitespace-nowrap"
+            style={{
+              backgroundColor: 'var(--bg-surface)',
+              borderColor: 'var(--border-strong)',
+              color: 'var(--text-primary)',
+            }}
+          >
+            <FileCode2 className="h-3.5 w-3.5" style={{ color: 'var(--accent)' }} />
+            PSPad Integrace
+          </button>
         </div>
       </div>
 
@@ -643,6 +664,17 @@ export function YamlDoctorView() {
           )}
         </div>
       </div>
+
+      <PSPadIntegrationModal
+        open={pspadOpen}
+        onClose={() => setPspadOpen(false)}
+        yaml={code}
+        diagnostics={analysis.diagnostics}
+        onImportYaml={(next) => {
+          setCode(next);
+          setAiFix(null);
+        }}
+      />
     </div>
   );
 }

@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyLessonCompletion,
+  buildLast30DaysActivity,
   calculateLessonReward,
   createDefaultProgress,
   purchaseShopItem,
+  summarizeActivity30Days,
+  toggleSoundPreference,
   updateStreakOnActivity,
 } from './gamification';
 
@@ -52,10 +55,65 @@ test('shop purchases deduct volts and unlock themes/skins', () => {
   assert.equal(fail.success, false);
 });
 
-test('applyLessonCompletion records completion without duplicates', () => {
+test('applyLessonCompletion records completion without duplicates, increments daily activity, and tracks flawless count', () => {
   const p = createDefaultProgress('2026-11-10');
-  const next = applyLessonCompletion(p, 'w1-1', { volts: 25, xp: 50 }, '2026-11-10');
+  const next = applyLessonCompletion(
+    p,
+    'w1-1',
+    { volts: 25, xp: 50 },
+    '2026-11-10',
+    { flawless: true }
+  );
   assert.deepEqual(next.completedLessons, ['w1-1']);
-  const again = applyLessonCompletion(next, 'w1-1', { volts: 5, xp: 15 }, '2026-11-10');
+  assert.equal(next.activityByDate['2026-11-10'], 1);
+  assert.equal(next.flawlessLessonsCount, 1);
+
+  const again = applyLessonCompletion(
+    next,
+    'w1-1',
+    { volts: 5, xp: 15 },
+    '2026-11-10',
+    { flawless: false }
+  );
   assert.deepEqual(again.completedLessons, ['w1-1']);
+  assert.equal(again.activityByDate['2026-11-10'], 2);
+  assert.equal(again.flawlessLessonsCount, 1);
+});
+
+test('buildLast30DaysActivity returns 30 ordered days ending on todayStr with accurate summary', () => {
+  const points = buildLast30DaysActivity(
+    {
+      '2026-10-20': 9, // outside 30-day window for 2026-11-23
+      '2026-11-01': 2,
+      '2026-11-22': 1,
+      '2026-11-23': 3,
+    },
+    '2026-11-23'
+  );
+
+  assert.equal(points.length, 30);
+  assert.equal(points[0].date, '2026-10-25');
+  assert.equal(points[29].date, '2026-11-23');
+  assert.equal(points[29].isToday, true);
+  assert.equal(points[29].completions, 3);
+
+  const summary = summarizeActivity30Days(points);
+  assert.equal(summary.totalCompletions, 6);
+  assert.equal(summary.activeDays, 3);
+  assert.equal(summary.bestDayCount, 3);
+  assert.equal(summary.averagePerActiveDay, 2);
+});
+
+test('toggleSoundPreference toggles individual audio channels cleanly', () => {
+  const p = createDefaultProgress('2026-11-23');
+  assert.equal(p.soundPreferences.typingFeedback, true);
+
+  const afterTyping = toggleSoundPreference(p, 'typingFeedback');
+  assert.equal(afterTyping.soundPreferences.typingFeedback, false);
+  assert.equal(afterTyping.soundPreferences.uiClicks, true);
+  assert.equal(afterTyping.soundPreferences.successFanfares, true);
+
+  const afterFanfare = toggleSoundPreference(afterTyping, 'successFanfares');
+  assert.equal(afterFanfare.soundPreferences.successFanfares, false);
+  assert.equal(afterFanfare.soundPreferences.typingFeedback, false);
 });

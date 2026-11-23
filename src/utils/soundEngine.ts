@@ -1,6 +1,12 @@
+import {
+  DEFAULT_SOUND_PREFERENCES,
+  type SoundPreferences,
+} from '../engine/gamification';
+
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private enabled = true;
+  private prefs: SoundPreferences = { ...DEFAULT_SOUND_PREFERENCES };
 
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
@@ -8,6 +14,21 @@ class SoundEngine {
 
   isEnabled(): boolean {
     return this.enabled;
+  }
+
+  setPreferences(prefs: Partial<SoundPreferences> | undefined) {
+    this.prefs = {
+      ...DEFAULT_SOUND_PREFERENCES,
+      ...(prefs ?? {}),
+    };
+  }
+
+  getPreferences(): SoundPreferences {
+    return { ...this.prefs };
+  }
+
+  private canPlay(channel: keyof SoundPreferences): boolean {
+    return this.enabled && Boolean(this.prefs[channel]);
   }
 
   private getContext(): AudioContext | null {
@@ -36,6 +57,7 @@ class SoundEngine {
   }
 
   playPop() {
+    if (!this.canPlay('uiClicks')) return;
     const ctx = this.getContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -55,6 +77,7 @@ class SoundEngine {
   }
 
   playToggle(on: boolean) {
+    if (!this.canPlay('uiClicks')) return;
     const ctx = this.getContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -72,7 +95,27 @@ class SoundEngine {
     this.vibrate(12);
   }
 
+  playTypeTick() {
+    if (!this.canPlay('typingFeedback')) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    const pitchJitter = 1 + (Math.random() - 0.5) * 0.12;
+    osc.frequency.setValueAtTime(1150 * pitchJitter, now);
+    osc.frequency.exponentialRampToValueAtTime(620 * pitchJitter, now + 0.022);
+    gain.gain.setValueAtTime(0.028, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.025);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.028);
+  }
+
   playErrorBonk() {
+    if (!this.canPlay('errorAlerts')) return;
     const ctx = this.getContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -91,6 +134,7 @@ class SoundEngine {
   }
 
   playSuccessFanfare(isBoss = false) {
+    if (!this.canPlay('successFanfares')) return;
     const ctx = this.getContext();
     if (!ctx) return;
     const notes = isBoss ? [523.25, 659.25, 783.99, 1046.5] : [523.25, 659.25, 783.99];
